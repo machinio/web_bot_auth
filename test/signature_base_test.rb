@@ -52,4 +52,10 @@ class SignatureBaseTest < Minitest::Test
       WebBotAuth::SignatureBase.build(components: @components, params: @params, request: @request.merge(headers: {}))
     end
   end
+
+  def test_empty_path_normalizes_to_slash
+    request = @request.merge(path: "")
+    base = WebBotAuth::SignatureBase.build(components: ["@path"], params: @params, request: request)
+    assert_includes base, %("@path": /)
+  end
 end

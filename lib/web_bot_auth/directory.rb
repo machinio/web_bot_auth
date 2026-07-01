@@ -15,7 +15,7 @@ module WebBotAuth
     end
 
     def to_json(*args)
-      JSON.generate(to_h, *args)
+      to_h.to_json(*args)
     end
   end
 end

@@ -24,7 +24,8 @@ module WebBotAuth
       when "@method"
         request.fetch(:method).to_s.upcase
       when "@path"
-        request.fetch(:path).to_s
+        path = request.fetch(:path).to_s
+        path.empty? ? "/" : path
       else
         field_value(name, request)
       end

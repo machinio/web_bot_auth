@@ -57,6 +57,11 @@ WebBotAuth::Verifier.new(key: key).verify(
 # => true
 ```
 
+`Verifier` checks signature correctness only. It does not enforce
+`created`/`expires` against the current time and does not fetch the key directory
+from `Signature-Agent`. It is for round-trip testing, not for verifying inbound
+third-party bots.
+
 ## Key handling
 
 ```ruby
@@ -187,9 +192,16 @@ focused tests pinning its exact bytes against a fixed fixture.
 
 ## References
 
+Wire format validated against **draft-meunier-web-bot-auth-architecture-05** and
+**draft-meunier-http-message-signatures-directory-05** (both 2026-03-02), plus
+Cloudflare's deployed Web Bot Auth format — the acceptance anchor, pinned by the
+`keyid` known-answer test. Note: the architecture draft was renamed to
+`draft-meunier-webbotauth-httpsig-protocol` (-00, 2026-06-26); re-validate against
+the latest revision before relying on it long-term.
+
 - [RFC 9421 — HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)
 - [RFC 7638 — JWK Thumbprint](https://www.rfc-editor.org/rfc/rfc7638.html)
-- [draft-meunier-web-bot-auth-architecture](https://datatracker.ietf.org/doc/draft-meunier-web-bot-auth-architecture/)
+- [draft-meunier-webbotauth-httpsig-protocol (renamed from -web-bot-auth-architecture)](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/)
 - [draft-meunier-http-message-signatures-directory](https://datatracker.ietf.org/doc/draft-meunier-http-message-signatures-directory/)
 - [Cloudflare Web Bot Auth docs](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)
 - [cloudflare/web-bot-auth (reference implementation)](https://github.com/cloudflare/web-bot-auth)

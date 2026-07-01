@@ -38,4 +38,10 @@ class SignerTest < Minitest::Test
     headers = @signer.sign(method: "GET", authority: "crawltest.com", path: "/", created: 1000, ttl: 60)
     assert_includes headers["Signature-Input"], "created=1000;expires=1060"
   end
+
+  def test_signing_is_thread_safe
+    args = { method: "GET", authority: "crawltest.com", path: "/", created: 1735689600, expires: 1735693200 }
+    results = Array.new(20) { Thread.new { @signer.sign(**args)["Signature"] } }.map(&:value)
+    assert_equal 1, results.uniq.length
+  end
 end
