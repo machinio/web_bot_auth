@@ -6,29 +6,34 @@ and publish the key directory at a Machinio-controlled HTTPS origin.
 
 ## 1. Generate the production keypair
 
-Generate one Ed25519 keypair. Keep the private key secret; only the public key
-goes into the directory.
+Generate one Ed25519 keypair. The private key goes into the secrets manager as the
+`WEB_BOT_AUTH_PRIVATE_KEY` environment variable; only the public key is published in
+the directory. This command prints the private PEM to stderr (copy it straight into
+the secrets manager — it is never written to disk) and the public directory document
+to stdout:
 
 ```sh
 ruby -Ilib -rweb_bot_auth -e '
   key = WebBotAuth::Key.generate
-  File.write("web_bot_auth_private.pem", key.to_pem)
-  File.write("http-message-signatures-directory.json", WebBotAuth::Directory.new(keys: [key]).to_json)
-  puts "keyid: #{key.keyid}"
-'
+  warn "keyid: #{key.keyid}"
+  warn key.to_pem
+  puts WebBotAuth::Directory.new(keys: [key]).to_json
+' > http-message-signatures-directory.json
 ```
 
-This writes:
+- The private PEM (stderr) is the secret — store it as `WEB_BOT_AUTH_PRIVATE_KEY`
+  in the secrets manager. Do not commit it and do not leave it on disk.
+- `http-message-signatures-directory.json` (stdout) holds only the public key and
+  is safe to publish (see step 3).
 
-- `web_bot_auth_private.pem` — the private key (**secret**).
-- `http-message-signatures-directory.json` — the public directory document.
+## 2. Store the private key (12-factor: env, not files)
 
-## 2. Store the private key
+Machinio is a 12-factor app: the private key is configuration and lives in the
+environment, injected by the secrets manager at runtime. It is never a file the app
+reads and never committed.
 
-- Do **not** commit the PEM. Put it in the secrets manager / environment used by
-  the crawlers (e.g. `WEB_BOT_AUTH_PRIVATE_KEY` holding the PEM contents, or
-  `WEB_BOT_AUTH_PRIVATE_KEY_PATH` pointing at a mounted secret).
-- The signer loads it once per process:
+- Store the PEM from step 1 as `WEB_BOT_AUTH_PRIVATE_KEY` in the secrets manager.
+- The signer loads it from the environment once per process:
 
   ```ruby
   SIGNER = WebBotAuth::Signer.new(
@@ -56,6 +61,7 @@ Requirements:
 Rack example:
 
 ```ruby
+KEY = WebBotAuth::Key.from_pem(ENV.fetch("WEB_BOT_AUTH_PRIVATE_KEY"))
 DIRECTORY = WebBotAuth::Directory.new(keys: [KEY]).to_json
 
 map "/.well-known/http-message-signatures-directory" do

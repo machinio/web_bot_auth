@@ -40,8 +40,8 @@ References:
 `https://crawltest.com/cdn-cgi/web-bot-auth` is Cloudflare's test endpoint. Run:
 
 ```sh
-# our own registered key
-WEB_BOT_AUTH_PRIVATE_KEY_PATH=web_bot_auth_private.pem ruby script/crawltest.rb
+# our own registered key: WEB_BOT_AUTH_PRIVATE_KEY set in the environment (from the secrets manager)
+rake crawltest
 ```
 
 Response codes:

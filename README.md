@@ -66,7 +66,7 @@ third-party bots.
 
 ```ruby
 key = WebBotAuth::Key.generate                 # new Ed25519 keypair
-key = WebBotAuth::Key.from_pem(File.read(pem)) # load a private (or public) key
+key = WebBotAuth::Key.from_pem(ENV.fetch("WEB_BOT_AUTH_PRIVATE_KEY")) # load a private key from its PEM (in env, per 12-factor)
 key = WebBotAuth::Key.from_jwk(jwk_hash)       # load from a JWK (d => private, x-only => public)
 
 key.keyid       # RFC 7638 JWK thumbprint (base64url, no padding) — used as the keyid
@@ -176,10 +176,13 @@ returns **401**: the signature is cryptographically verified, but the key is not
 registered with Cloudflare. That 401 is the expected signal that our signing is
 byte-correct — a malformed request would return **400**. Reaching **200** requires
 publishing our own key directory and registering it with Cloudflare — see
-[`doc/cloudflare-setup.md`](doc/cloudflare-setup.md). To sign with our own key:
+[`doc/cloudflare-setup.md`](doc/cloudflare-setup.md). To sign with our own key,
+provide its PEM through the environment (in production the secrets manager injects
+this; the key is never written to disk):
 
 ```sh
-WEB_BOT_AUTH_PRIVATE_KEY_PATH=path/to/private.pem ruby script/crawltest.rb
+export WEB_BOT_AUTH_PRIVATE_KEY="$(cat private.pem)"   # local only — production injects it from the secrets manager
+rake crawltest
 ```
 
 ## Development
