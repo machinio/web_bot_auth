@@ -58,10 +58,11 @@ Reading the result:
   is byte-correct and only key registration is missing.
 - **200 after registration** is the acceptance gate.
 
-To confirm the signing implementation independently of registration, sign with the
-shared Web Bot Auth test key (the script's default, keyid
-`poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U`), which Cloudflare already
-recognizes and returns **200**:
+The script's default is the shared Web Bot Auth test key (keyid
+`poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U`). Against `crawltest.com` it returns
+**401**: the signature is cryptographically valid but the key is not registered.
+This confirms the signing implementation is correct independently of registration —
+a malformed request would return **400**:
 
 ```sh
 ruby script/crawltest.rb

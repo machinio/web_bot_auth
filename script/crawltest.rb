@@ -28,8 +28,8 @@ end
 
 def explain(code)
   case code.to_i
-  when 200 then "OK: key is known to Cloudflare and the signature verified"
-  when 401 then "signature is valid but the key is unknown (register the directory, or sign with the shared test key)"
+  when 200 then "verified: the key is registered with Cloudflare and the signature checks out"
+  when 401 then "signature is cryptographically valid but the key is not registered with Cloudflare yet (expected before registration; see doc/cloudflare-setup.md)"
   when 400 then "malformed signed request"
   else "unexpected status"
   end
@@ -65,5 +65,6 @@ http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = uri.scheme == "https"
 response = http.request(request)
 
-puts "HTTP #{response.code} -> #{explain(response.code)}"
-exit(response.code.to_i == 200 ? 0 : 1)
+code = response.code.to_i
+puts "HTTP #{code} -> #{explain(code)}"
+exit(code == 200 || code == 401 ? 0 : 1)

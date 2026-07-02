@@ -170,11 +170,13 @@ Cloudflare's test endpoint returns:
 - **401** — the signature is valid but the key is unknown.
 - **400** — the signed request is malformed.
 
-By default the script signs with the shared Web Bot Auth Ed25519 test key
-(keyid `poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U`), which Cloudflare recognizes,
-so a correct implementation returns **200**. Signing with our own freshly
-generated key returns **401** until the key directory is registered — see
-[`doc/cloudflare-setup.md`](doc/cloudflare-setup.md). To use our own key:
+The script signs with the shared Web Bot Auth Ed25519 test key by default
+(keyid `poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U`). Against `crawltest.com` this
+returns **401**: the signature is cryptographically verified, but the key is not
+registered with Cloudflare. That 401 is the expected signal that our signing is
+byte-correct — a malformed request would return **400**. Reaching **200** requires
+publishing our own key directory and registering it with Cloudflare — see
+[`doc/cloudflare-setup.md`](doc/cloudflare-setup.md). To sign with our own key:
 
 ```sh
 WEB_BOT_AUTH_PRIVATE_KEY_PATH=path/to/private.pem ruby script/crawltest.rb
