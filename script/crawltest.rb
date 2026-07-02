@@ -19,8 +19,6 @@ SIGNATURE_AGENT = ENV.fetch("WEB_BOT_AUTH_SIGNATURE_AGENT", "https://www.machini
 def load_key
   if (pem = ENV["WEB_BOT_AUTH_PRIVATE_KEY"])
     WebBotAuth::Key.from_pem(pem)
-  elsif (path = ENV["WEB_BOT_AUTH_PRIVATE_KEY_PATH"])
-    WebBotAuth::Key.from_pem(File.read(path))
   else
     WebBotAuth::Key.from_jwk(TEST_JWK)
   end
