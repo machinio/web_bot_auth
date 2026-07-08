@@ -1,6 +1,10 @@
 # Deployment guide
 
-Steps to take `web_bot_auth` from a working gem to verified traffic in production.
+Start here: [`machinio-implementation-plan.md`](machinio-implementation-plan.md) —
+the end-to-end runbook (phases, copy-pasteable code, checklist) for rolling this
+out across the `machinio` web app and `athena_crawlers`.
+
+Reference docs it draws on:
 
 1. [`machinio-setup.md`](machinio-setup.md) — what to do on the Machinio side:
    generate the production key, store the private key, and host the key directory.
