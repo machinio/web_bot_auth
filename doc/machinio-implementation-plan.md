@@ -10,12 +10,14 @@ athena_crawlers (holds the PRIVATE key)
   └─ signs each request: Signature-Agent / Signature-Input / Signature
        │
        ▼
-target site behind Cloudflare
+target site's anti-bot vendor (Cloudflare for the crawltest gate; real targets vary)
   └─ reads keyid, fetches our directory:
        https://www.machinio.com/.well-known/http-message-signatures-directory
        │  (served by the `machinio` Rails app — PUBLIC key only)
+       │  ⚠️ www.machinio.com is behind AKAMAI, which 403s plain requests —
+       │     this path MUST be exempted so external verifiers can fetch it
        ▼
-  Cloudflare verifies the Ed25519 signature against the registered key → allow
+  the verifier checks the Ed25519 signature against the fetched key → allow
 ```
 
 Acceptance gate: `rake crawltest` (in the `web_bot_auth` repo) returns **200**
@@ -27,7 +29,7 @@ valid, key not registered) — that already proves our signing is byte-correct.
 | Component | Needs | Change |
 | --- | --- | --- |
 | `athena_crawlers` | the **private** key (`WEB_BOT_AUTH_PRIVATE_KEY` env) + the gem | signer wiring |
-| `machinio` web app | the **public** directory JSON only | one route + one config file; **no gem, no secret** |
+| `machinio` web app (behind **Akamai**) | the **public** directory JSON only | one route + one config file (**no gem, no secret**) **+ an Akamai exemption so the path is publicly fetchable** |
 | Cloudflare | the directory URL registered | dashboard step |
 
 `Signature-Agent = https://www.machinio.com` — the host that serves the directory
@@ -41,7 +43,11 @@ Confirm before starting:
 
 - [ ] `www.machinio.com` is the right Signature-Agent (directory is hosted there;
       crawlers identify as machinio.com). 
-- [ ] Confirm `www.machinio.com` is behind Cloudflare: `curl -sI https://www.machinio.com | grep -i cf-ray`.
+- [ ] `www.machinio.com` is behind **Akamai**, which returns **403 to plain
+      (non-browser) requests** — confirmed by `curl -I https://www.machinio.com`
+      (Akamai "Access Denied"). The directory path therefore needs an Akamai
+      exemption (Phase 2 step 5), or the directory must be hosted off-Akamai.
+      Engage the **Akamai/infra team** early — this is the critical-path dependency.
 - [ ] We have Cloudflare dashboard access for the Verified Bots / signed-agent
       registration.
 - [ ] Pilot crawler is a **direct-fetch** crawler, **not** a proxy-routed one
@@ -135,16 +141,39 @@ RSpec.describe "Web Bot Auth directory" do
 end
 ```
 
-**4. Deploy**, then verify live:
+**4. Deploy**, then verify live **from outside** (this is what a verifier does — a
+plain server-side GET, no browser):
 
 ```sh
 curl -sI https://www.machinio.com/.well-known/http-message-signatures-directory
-# 200 + content-type: application/http-message-signatures-directory+json
+# want: 200 + content-type: application/http-message-signatures-directory+json
+# NOT:  403 (Akamai "Access Denied") — the bare `curl -I https://www.machinio.com/`
+#       already returns 403, so this path likely needs the exemption in step 5.
 ```
+
+**5. Akamai: make the directory publicly fetchable (required).** Cloudflare — and
+any verifier — fetches the directory server-side to read our key, and Akamai Bot
+Manager currently 403s such requests. Pick one:
+
+- **Preferred — exempt the path in Akamai.** Add a match on
+  `/.well-known/http-message-signatures-directory` that bypasses Bot Manager / WAF,
+  returns the origin 200, passes the content-type through, and caches with a modest
+  TTL (e.g. 1h) that we purge on key rotation. Owner: Akamai/infra team. Keeps
+  `Signature-Agent = https://www.machinio.com`.
+- **Fallback — serve off-Akamai.** Host the directory on a subdomain that is not
+  behind Akamai Bot Manager (e.g. `https://keys.machinio.com/.well-known/http-message-signatures-directory`)
+  and set `Signature-Agent` to that host everywhere: the signer config, the
+  `crawltest.rb` default, and the docs. Use this if the Akamai change is slow.
+
+Gate: do not start Phase 3 until an external `curl` of the directory returns **200**.
 
 ---
 
 ## Phase 3 — Register with Cloudflare & verify the gate
+
+Precondition: the directory URL returns 200 to an external `curl` (Phase 2 step 5).
+If Akamai still 403s it, Cloudflare cannot read our key and registration finds
+nothing.
 
 - [ ] In the Cloudflare dashboard, register Machinio as a signed/verified bot and
       submit the directory URL:
@@ -262,7 +291,8 @@ so both coexist. See [`machinio-setup.md`](machinio-setup.md).
 - [ ] Phase 0 decisions confirmed
 - [ ] Production key generated; private key in crawler secrets; keyid recorded
 - [ ] `machinio`: directory JSON committed, route added, test green, deployed
-- [ ] Directory reachable live with correct content-type
+- [ ] **Akamai exemption** for the directory path (or off-Akamai host chosen)
+- [ ] Directory returns **200 to an external curl** with the correct content-type
 - [ ] Cloudflare registration submitted
 - [ ] `rake crawltest` → 200
 - [ ] Gem added to `athena_crawlers`; lazy signer helper added
