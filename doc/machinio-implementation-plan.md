@@ -165,6 +165,25 @@ Manager currently 403s such requests. Pick one:
   and set `Signature-Agent` to that host everywhere: the signer config, the
   `crawltest.rb` default, and the docs. Use this if the Akamai change is slow.
 
+Confirmed on 2026-07-08: `curl -I https://www.machinio.com/.well-known/http-message-signatures-directory`
+returns **403** at the Akamai edge (not a Rails 404), so the path is not
+auto-allowed — the exemption is required.
+
+**Akamai exemption request (copy into the infra/Akamai ticket):**
+
+> Please allow anonymous, automated GET requests to exactly this path on
+> `www.machinio.com`, bypassing Bot Manager and any WAF rule that currently returns
+> 403:
+>
+>     /.well-known/http-message-signatures-directory
+>
+> - It serves a small **public** JSON (an Ed25519 **public** key) — no secrets, no
+>   PII — safe to expose anonymously.
+> - External verifiers (Cloudflare, etc.) fetch it server-side and must receive
+>   **200**, not the Akamai Access Denied page.
+> - Preserve the origin `Content-Type: application/http-message-signatures-directory+json`.
+> - Cacheable with a ~1h TTL; we purge on key rotation.
+
 Gate: do not start Phase 3 until an external `curl` of the directory returns **200**.
 
 ---
