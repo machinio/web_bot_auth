@@ -151,6 +151,9 @@ curl -sI https://www.machinio.com/.well-known/http-message-signatures-directory
 #       already returns 403, so this path likely needs the exemption in step 5.
 ```
 
+Done 2026-07-27: the endpoint is deployed and serves the production directory
+correctly. It still fails this check — see step 5.
+
 **5. Akamai: make the directory publicly fetchable (required).** Cloudflare — and
 any verifier — fetches the directory server-side to read our key, and Akamai Bot
 Manager currently 403s such requests. Pick one:
@@ -165,9 +168,43 @@ Manager currently 403s such requests. Pick one:
   and set `Signature-Agent` to that host everywhere: the signer config, the
   `crawltest.rb` default, and the docs. Use this if the Akamai change is slow.
 
-Confirmed on 2026-07-08: `curl -I https://www.machinio.com/.well-known/http-message-signatures-directory`
-returns **403** at the Akamai edge (not a Rails 404), so the path is not
-auto-allowed — the exemption is required.
+### Status 2026-07-27 — endpoint is live, Akamai still blocks machines
+
+The Rails endpoint is deployed and correct. Fetched from a real browser it returns:
+
+- `200`
+- `content-type: application/http-message-signatures-directory+json; charset=utf-8`
+- `cache-control: max-age=3600, public`
+- body `{"keys":[{"kty":"OKP","crv":"Ed25519","x":"ljEOtkibX3AHeiG_m7zhSxVfz0Tt1XzJTnB9lkk6kcc","kid":"jnJI0JDL8DMS8fO_gODlVd5-OYIJuQM8IAw5WkuS8Js","use":"sig"}]}`
+  — the **production** keyid, matching the key held by the crawlers.
+
+**The exemption is still not in place.** Akamai Bot Manager applies its normal
+browser-fingerprint heuristics to this path, so it answers by *how the client
+looks*, not by path. Same URL, same second, same source IP:
+
+```sh
+U=https://www.machinio.com/.well-known/http-message-signatures-directory
+
+# a verifier-style request — what Cloudflare actually sends
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H 'Accept: application/http-message-signatures-directory+json' "$U"      # → 403
+
+# a request carrying the full browser header signature
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36' \
+  -H 'Accept-Language: en-US,en;q=0.9' -H 'Accept-Encoding: gzip, deflate, br' \
+  -H 'sec-fetch-dest: document' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-site: none' "$U"   # → 200
+```
+
+Both results are deterministic (5/5 runs each). The minimal header set that passes
+is browser `User-Agent` **+** `Accept-Language` **+** `Accept-Encoding` **+** the
+three `sec-fetch-*` headers; drop any one of those groups and it returns to 403.
+Plain `curl`, `Go-http-client`, and a `Cloudflare-*` User-Agent are all denied, as is
+a fetch from unrelated cloud infrastructure — so this is header heuristics, not an
+IP reputation problem, and not TLS fingerprinting.
+
+Since Cloudflare's directory fetch is a plain server-side GET, it will receive the
+Akamai Access Denied page and find no key. Phase 3 remains blocked.
 
 **Akamai exemption request (copy into the infra/Akamai ticket):**
 
@@ -178,11 +215,27 @@ auto-allowed — the exemption is required.
 >     /.well-known/http-message-signatures-directory
 >
 > - It serves a small **public** JSON (an Ed25519 **public** key) — no secrets, no
->   PII — safe to expose anonymously.
-> - External verifiers (Cloudflare, etc.) fetch it server-side and must receive
->   **200**, not the Akamai Access Denied page.
+>   PII — safe to expose anonymously. It is already deployed and returns 200 at the
+>   origin; only the edge denies it.
+> - External verifiers (Cloudflare, etc.) fetch it **server-side, with no browser
+>   headers**, and must receive **200**, not the Access Denied page. Bot Manager
+>   currently allows this path only for clients presenting a full browser header
+>   signature, which a verifier never does — so please match on the path and skip
+>   the bot checks entirely rather than relaxing a heuristic.
 > - Preserve the origin `Content-Type: application/http-message-signatures-directory+json`.
 > - Cacheable with a ~1h TTL; we purge on key rotation.
+> - Denied-request sample for log lookup: Akamai reference
+>   `18.dd55645f.1785152371.69f792ea` (2026-07-27 11:39:31 GMT), a `GET` of the path
+>   above with `Accept: application/http-message-signatures-directory+json`.
+>
+> Acceptance test — this must return 200 from any host, with no browser headers:
+>
+>     curl -sSI https://www.machinio.com/.well-known/http-message-signatures-directory
+
+If the exemption stalls, the fallback is the off-Akamai host in the list above.
+Neither `keys.machinio.com` nor `well-known.machinio.com` resolves today
+(`www.machinio.com` is a CNAME to `www.machinio.com.edgekey.net`), so that route
+means standing up a new host and changing `Signature-Agent` everywhere.
 
 Gate: do not start Phase 3 until an external `curl` of the directory returns **200**.
 
@@ -308,9 +361,12 @@ so both coexist. See [`machinio-setup.md`](machinio-setup.md).
 ## Ticket checklist
 
 - [ ] Phase 0 decisions confirmed
-- [ ] Production key generated; private key in crawler secrets; keyid recorded
-- [ ] `machinio`: directory JSON committed, route added, test green, deployed
-- [ ] **Akamai exemption** for the directory path (or off-Akamai host chosen)
+- [x] Production key generated; keyid recorded (`jnJI0JDL8DMS8fO_gODlVd5-OYIJuQM8IAw5WkuS8Js`)
+- [ ] Private key stored in the crawlers' secrets as `WEB_BOT_AUTH_PRIVATE_KEY`
+- [x] `machinio`: directory JSON committed, route added, test green, deployed —
+      verified live 2026-07-27, serving the production keyid above
+- [ ] **Akamai exemption** for the directory path (or off-Akamai host chosen) —
+      ⬅ **the one thing blocking everything downstream**
 - [ ] Directory returns **200 to an external curl** with the correct content-type
 - [ ] Cloudflare registration submitted
 - [ ] `rake crawltest` → 200
