@@ -29,7 +29,7 @@ valid, key not registered) — that already proves our signing is byte-correct.
 | Component | Needs | Change |
 | --- | --- | --- |
 | `athena_crawlers` | the **private** key (`WEB_BOT_AUTH_PRIVATE_KEY` env) + the gem | signer wiring |
-| `machinio` web app (behind **Akamai**) | the **public** directory JSON only | one route + one config file (**no gem, no secret**) **+ an Akamai exemption so the path is publicly fetchable** |
+| `machinio` web app (behind **Akamai**) | the public directory JSON **and** the private key (`WEB_BOT_AUTH_PRIVATE_KEY` env), because Cloudflare requires the directory *response* to be signed | one route + one config file + ~15 lines of OpenSSL signing (**no gem**) **+ an Akamai exemption so the path is publicly fetchable** |
 | Cloudflare | the directory URL registered | dashboard step |
 
 `Signature-Agent = https://www.machinio.com` — the host that serves the directory
@@ -78,8 +78,10 @@ ruby -Ilib -rweb_bot_auth -e '
 
 ## Phase 2 — Serve the directory on www.machinio.com (`machinio` Rails app)
 
-The directory is public and static (changes only on key rotation), so the web app
-serves a committed JSON file. **No gem and no private key** in this app.
+The directory body is public and static (changes only on key rotation), so the web
+app serves a committed JSON file. The app does **not** need the gem — but it does
+need the **private key**, because Cloudflare requires the response itself to be
+signed (step 6).
 
 **1. Commit the public directory** produced in Phase 1:
 
@@ -167,6 +169,34 @@ Manager currently 403s such requests. Pick one:
   behind Akamai Bot Manager (e.g. `https://keys.machinio.com/.well-known/http-message-signatures-directory`)
   and set `Signature-Agent` to that host everywhere: the signer config, the
   `crawltest.rb` default, and the docs. Use this if the Akamai change is slow.
+
+**6. Sign the directory response (required).** Discovered 2026-07-29 in
+[Cloudflare's Web Bot Auth reference](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/):
+serving the JWKS is not enough. Cloudflare requires the *response* to carry
+`Signature` / `Signature-Input` headers — "attaching one signature per key in your
+key directory" — proving we hold the private key we publish. An unsigned directory
+fails validation even once Akamai lets the fetch through.
+
+The signature covers `("@authority")` only, with `tag="http-message-signatures-directory"`,
+`alg="ed25519"` and `keyid` = the JWK thumbprint. `@authority` must equal the Host
+header of the incoming request, so it is signed per request rather than baked into
+the file.
+
+This is ~15 lines of stdlib `OpenSSL` in the controller — the app reads
+`WEB_BOT_AUTH_PRIVATE_KEY` from the environment (the same key the crawlers use) and
+signs on the fly. The gem is deliberately **not** added as a dependency here; the
+gem's `WebBotAuth::Directory#response_headers` produces byte-identical headers and
+is what the crawler side uses. Consequences to plan for:
+
+- The private key must be deployed to the **web** app, not only the crawlers.
+- If `WEB_BOT_AUTH_PRIVATE_KEY` is absent the endpoint still serves the directory,
+  unsigned, and logs a warning — a missing secret degrades verification rather than
+  taking a public URL down.
+- `config/web_bot_auth_directory.json` and the env key must stay in sync. If they
+  drift, the signature's `keyid` will not match any key in the published JWKS and
+  Cloudflare will reject the directory.
+- Verify after deploy that `@authority` in `Signature-Input` is the public host
+  (`www.machinio.com`) — i.e. that Akamai forwards the original `Host` header.
 
 ### Status 2026-07-27 — endpoint is live, Akamai still blocks machines
 

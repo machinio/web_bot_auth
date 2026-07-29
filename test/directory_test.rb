@@ -24,4 +24,51 @@ class DirectoryTest < Minitest::Test
     doc = WebBotAuth::Directory.new(keys: WebBotAuth::Key.generate).to_h
     assert_equal 1, doc["keys"].length
   end
+
+  def test_response_headers_format
+    key = WebBotAuth::Key.from_jwk(Fixtures::TEST_JWK)
+    headers = WebBotAuth::Directory.new(keys: [key]).response_headers(
+      authority: "www.machinio.com", created: 1735689600, expires: 1735776000
+    )
+
+    expected = %(sig1=("@authority");created=1735689600;expires=1735776000;keyid="#{Fixtures::TEST_KEYID}";alg="ed25519";tag="http-message-signatures-directory")
+    assert_equal expected, headers["Signature-Input"]
+    assert_match(%r{\Asig1=:[A-Za-z0-9+/]+=*:\z}, headers["Signature"])
+  end
+
+  def test_response_headers_round_trip
+    key = WebBotAuth::Key.generate
+    headers = WebBotAuth::Directory.new(keys: [key]).response_headers(authority: "www.machinio.com")
+
+    assert WebBotAuth::Verifier.new(key: key).verify(
+      method: "GET", authority: "www.machinio.com", path: "/.well-known/http-message-signatures-directory", headers: headers
+    )
+  end
+
+  def test_response_headers_are_bound_to_authority
+    key = WebBotAuth::Key.generate
+    headers = WebBotAuth::Directory.new(keys: [key]).response_headers(authority: "www.machinio.com")
+
+    refute WebBotAuth::Verifier.new(key: key).verify(
+      method: "GET", authority: "evil.com", path: "/.well-known/http-message-signatures-directory", headers: headers
+    )
+  end
+
+  def test_one_signature_per_key
+    keys = [WebBotAuth::Key.generate, WebBotAuth::Key.generate]
+    headers = WebBotAuth::Directory.new(keys: keys).response_headers(authority: "www.machinio.com")
+
+    assert_equal 2, headers["Signature-Input"].scan(/(?:\A|, )sig\d=/).length
+    assert_equal 2, headers["Signature"].scan(/(?:\A|, )sig\d=/).length
+    keys.each_index { |index| assert_includes headers["Signature-Input"], %(sig#{index + 1}=("@authority")) }
+    keys.each { |key| assert_includes headers["Signature-Input"], %(keyid="#{key.keyid}") }
+  end
+
+  def test_public_only_key_cannot_sign
+    public_key = WebBotAuth::Key.from_jwk(WebBotAuth::Key.generate.public_jwk)
+
+    assert_raises(WebBotAuth::Error) do
+      WebBotAuth::Directory.new(keys: [public_key]).response_headers(authority: "www.machinio.com")
+    end
+  end
 end
