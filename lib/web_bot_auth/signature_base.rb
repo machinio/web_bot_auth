@@ -5,19 +5,25 @@ module WebBotAuth
     module_function
 
     def build(components:, params:, request:)
-      lines = components.map { |name| %("#{name}": #{component_value(name, request)}) }
+      lines = components.map { |component| "#{identifier(component)}: #{component_value(component, request)}" }
       lines << %("@signature-params": #{signature_params(components, params)})
       lines.join("\n")
     end
 
     def signature_params(components, params)
-      inner = components.map { |name| %("#{name}") }.join(" ")
+      inner = components.map { |component| identifier(component) }.join(" ")
       serialized = "(#{inner})"
       params.each { |key, value| serialized += ";#{key}=#{serialize_param(value)}" }
       serialized
     end
 
-    def component_value(name, request)
+    def identifier(component)
+      name, *flags = component.split(";")
+      [%("#{name}"), *flags].join(";")
+    end
+
+    def component_value(component, request)
+      name = component.split(";").first
       case name
       when "@authority"
         request.fetch(:authority).to_s.downcase
