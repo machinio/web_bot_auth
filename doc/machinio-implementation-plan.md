@@ -344,8 +344,12 @@ it gets 200 on both the directory and `/bot`. Any other non-browser client still
 gets 403, so check the endpoint with `rake directory_check`, not a bare `curl`. The
 edge does not cache the directory response, so a deploy is visible immediately.
 
-Next: deploy the machinio fix → `rake directory_check` → `PASS` → **Edit submission**
-in BotBase.
+The machinio fix (`machinio/machinio#12012`) was merged and live the same day.
+Against production, `rake directory_check` prints `PASS`, and Cloudflare's own
+validator (`http-signature-directory` 0.7.0) reports `"success": true` with
+`"signature_verified": true` and no errors or warnings.
+
+Next: **Edit submission** in BotBase.
 
 ---
 
@@ -454,10 +458,12 @@ so both coexist. See [`machinio-setup.md`](machinio-setup.md).
 - [x] **Akamai exemption** — Bot Manager exempts `Cloudflare-Validator/1.0`, the
       user agent Cloudflare fetches the directory with (verified 2026-10-09)
 - [x] Cloudflare registration submitted (2026-09-11; changes requested 2026-10-09)
-- [ ] `machinio`: directory signed over `("@authority";req)`, exact content-type —
+- [x] `machinio`: directory signed over `("@authority";req)`, exact content-type
+      (deployed 2026-10-09)
+- [x] `rake directory_check` → `PASS` against production, and Cloudflare's
+      `http-signature-directory` validator agrees (2026-10-09)
+- [ ] Submission edited and resubmitted in BotBase —
       ⬅ **the one thing blocking everything downstream**
-- [ ] `rake directory_check` → `PASS` against production
-- [ ] Submission edited and resubmitted in BotBase
 - [ ] `rake crawltest` → 200
 - [ ] Gem added to `athena_crawlers`; lazy signer helper added
 - [ ] Per-request signing wired into `ApplicationCrawler` (direct-fetch)

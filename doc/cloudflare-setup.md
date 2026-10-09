@@ -29,6 +29,16 @@ Cloudflare's [`http-signature-directory`](https://crates.io/crates/http-signatur
 validator. Cloudflare validates the directory when it reviews the submission, and a
 bounced submission costs a full review cycle.
 
+For the authoritative verdict, run Cloudflare's validator itself. It needs a Rust
+toolchain, and the user agent has to be passed explicitly because Akamai lets only
+that one through:
+
+```sh
+cargo install http-signature-directory
+http-signature-directory https://www.machinio.com/.well-known/http-message-signatures-directory 'Cloudflare-Validator/1.0'
+# want: "success": true, "signature_verified": true, "warnings": []
+```
+
 Then, in the Cloudflare dashboard, go to **Application security → BotBase →
 Submission form**, choose identity attestation **Web Bot Auth**, and submit the key
 directory URL:
