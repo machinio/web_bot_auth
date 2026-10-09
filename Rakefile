@@ -13,4 +13,9 @@ task :crawltest do
   ruby "script/crawltest.rb"
 end
 
+desc "Fetch the live key directory and run the checks Cloudflare's validator runs"
+task :directory_check do
+  ruby "script/directory_check.rb"
+end
+
 task default: :test
