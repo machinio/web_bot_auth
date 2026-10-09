@@ -18,15 +18,28 @@ directory. So the directory URL must be submitted to Cloudflare first.
 
 ## 1. Register the key directory
 
-In the Cloudflare dashboard, register Machinio as a signed/verified bot and submit
-the key directory URL:
+First confirm the directory would pass Cloudflare's validation:
+
+```sh
+rake directory_check   # must end with PASS
+```
+
+It fetches the directory as `Cloudflare-Validator/1.0` and runs the checks of
+Cloudflare's [`http-signature-directory`](https://crates.io/crates/http-signature-directory)
+validator. Cloudflare validates the directory when it reviews the submission, and a
+bounced submission costs a full review cycle.
+
+Then, in the Cloudflare dashboard, go to **Application security → BotBase →
+Submission form**, choose identity attestation **Web Bot Auth**, and submit the key
+directory URL:
 
 ```
 https://www.machinio.com/.well-known/http-message-signatures-directory
 ```
 
 Cloudflare accepts all valid Ed25519 keys found there. After registration, our
-`keyid` becomes "known" and signed requests can verify to **200**.
+`keyid` becomes "known" and signed requests can verify to **200**. The submission's
+status, and any requested changes, appear under **Submission history**.
 
 References:
 
