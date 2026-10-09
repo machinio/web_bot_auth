@@ -52,8 +52,12 @@ https://www.machinio.com/.well-known/http-message-signatures-directory
 
 Requirements:
 
-- Content-Type **must** be `application/http-message-signatures-directory+json`.
+- Content-Type **must** be exactly `application/http-message-signatures-directory+json`,
+  with no `; charset=...` suffix.
 - Must be reachable over HTTPS without authentication.
+- The response **must** be signed: `Signature` / `Signature-Input` headers, one
+  signature per published key, over `("@authority";req)`. Cloudflare rejects an
+  unsigned directory, and one signed over a plain `"@authority"`.
 - The host **must** match the `Signature-Agent` value the signer sends
   (`https://www.machinio.com`). Verifiers discover the key directory from
   `Signature-Agent`.
@@ -62,17 +66,22 @@ Rack example:
 
 ```ruby
 KEY = WebBotAuth::Key.from_pem(ENV.fetch("WEB_BOT_AUTH_PRIVATE_KEY"))
-DIRECTORY = WebBotAuth::Directory.new(keys: [KEY]).to_json
+DIRECTORY = WebBotAuth::Directory.new(keys: [KEY])
 
 map "/.well-known/http-message-signatures-directory" do
-  run ->(_env) {
-    [200, { "content-type" => WebBotAuth::Directory::CONTENT_TYPE }, [DIRECTORY]]
+  run ->(env) {
+    signature = DIRECTORY.response_headers(authority: Rack::Request.new(env).host)
+    headers = signature.transform_keys(&:downcase).merge("content-type" => WebBotAuth::Directory::CONTENT_TYPE)
+    [200, headers, [DIRECTORY.to_json]]
   }
 end
 ```
 
-If served as a static file, configure the web server to send the content-type
-above for that path (browsers/CDNs will otherwise default to `application/json`).
+A static file cannot satisfy this: the signature is bound to the request's Host and
+to `created` / `expires`, so it has to be produced per request.
+
+Check the result with `rake directory_check` (see
+[`cloudflare-setup.md`](cloudflare-setup.md)).
 
 ## 4. Wire the signer into the crawlers
 

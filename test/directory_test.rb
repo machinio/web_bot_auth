@@ -31,9 +31,32 @@ class DirectoryTest < Minitest::Test
       authority: "www.machinio.com", created: 1735689600, expires: 1735776000
     )
 
-    expected = %(sig1=("@authority");created=1735689600;expires=1735776000;keyid="#{Fixtures::TEST_KEYID}";alg="ed25519";tag="http-message-signatures-directory")
+    expected = %(sig1=("@authority";req);created=1735689600;expires=1735776000;keyid="#{Fixtures::TEST_KEYID}";alg="ed25519";tag="http-message-signatures-directory")
     assert_equal expected, headers["Signature-Input"]
     assert_match(%r{\Asig1=:[A-Za-z0-9+/]+=*:\z}, headers["Signature"])
+  end
+
+  def test_matches_cloudflare_directory_response_vector
+    key = WebBotAuth::Key.from_jwk(Fixtures::TEST_JWK)
+    base = WebBotAuth::SignatureBase.build(
+      components: ["@authority;req", "content-digest"],
+      params: { created: 1735689600, keyid: Fixtures::TEST_KEYID, alg: "ed25519", expires: 4889289600, tag: "http-message-signatures-directory" },
+      request: {
+        authority: "signature-agent.test",
+        headers: { "content-digest" => "sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:" }
+      }
+    )
+
+    expected = <<~BASE.chomp
+      "@authority";req: signature-agent.test
+      "content-digest": sha-256=:CADMT2aBdV/rqQr/NIru64ERQkCobVvllA4V0fLFDu0=:
+      "@signature-params": ("@authority";req "content-digest");created=1735689600;keyid="poqkLGiymh_W0uP6PZFw-dvez3QJT5SolqXBCW38r0U";alg="ed25519";expires=4889289600;tag="http-message-signatures-directory"
+    BASE
+    assert_equal expected, base
+    assert_equal(
+      "yiHq0TXrbpzbmlttAQMpYoAufitFJUWuNsakB7QQMoN0EHbo5o51bZRVR8az/ptTWCwllix9clrKXfGKwdPzBg==",
+      Base64.strict_encode64(key.sign(base))
+    )
   end
 
   def test_response_headers_round_trip
@@ -60,7 +83,7 @@ class DirectoryTest < Minitest::Test
 
     assert_equal 2, headers["Signature-Input"].scan(/(?:\A|, )sig\d=/).length
     assert_equal 2, headers["Signature"].scan(/(?:\A|, )sig\d=/).length
-    keys.each_index { |index| assert_includes headers["Signature-Input"], %(sig#{index + 1}=("@authority")) }
+    keys.each_index { |index| assert_includes headers["Signature-Input"], %(sig#{index + 1}=("@authority";req)) }
     keys.each { |key| assert_includes headers["Signature-Input"], %(keyid="#{key.keyid}") }
   end
 

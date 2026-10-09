@@ -93,6 +93,21 @@ WebBotAuth::Directory::CONTENT_TYPE
 # => "application/http-message-signatures-directory+json"
 ```
 
+Cloudflare requires the directory response itself to be signed, one signature per
+published key, over `("@authority";req)`. `response_headers` builds those headers
+and needs the private keys:
+
+```ruby
+directory.response_headers(authority: "www.machinio.com")
+# => {
+#   "Signature-Input" => "sig1=(\"@authority\";req);created=...;expires=...;keyid=\"...\";alg=\"ed25519\";tag=\"http-message-signatures-directory\"",
+#   "Signature"       => "sig1=:...:"
+# }
+```
+
+`rake directory_check` fetches the live directory as Cloudflare does and runs the
+checks its validator runs. Set `WEB_BOT_AUTH_DIRECTORY_URL` to check another host.
+
 See [`doc/machinio-setup.md`](doc/machinio-setup.md) for how to host this.
 
 ## Signed components

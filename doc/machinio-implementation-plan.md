@@ -177,10 +177,20 @@ serving the JWKS is not enough. Cloudflare requires the *response* to carry
 key directory" — proving we hold the private key we publish. An unsigned directory
 fails validation even once Akamai lets the fetch through.
 
-The signature covers `("@authority")` only, with `tag="http-message-signatures-directory"`,
+The signature covers `("@authority";req)` only, with `tag="http-message-signatures-directory"`,
 `alg="ed25519"` and `keyid` = the JWK thumbprint. `@authority` must equal the Host
 header of the incoming request, so it is signed per request rather than baked into
 the file.
+
+The `req` parameter is mandatory, in both `Signature-Input` and the signature base
+(`"@authority";req: www.machinio.com`). The signature sits on a *response*, and
+`@authority` is a property of the request that produced it, which RFC 9421 §2.4
+expresses with `req`. Cloudflare's validator refuses a plain `"@authority"` outright;
+that is what bounced our first submission (Phase 3, status 2026-10-09).
+
+`Content-Type` must be exactly `application/http-message-signatures-directory+json`,
+with no `; charset=utf-8` suffix. Rails appends one to `render plain:`, so the
+controller clears it with `response.charset = false`.
 
 This is ~15 lines of stdlib `OpenSSL` in the controller — the app reads
 `WEB_BOT_AUTH_PRIVATE_KEY` from the environment (the same key the crawlers use) and
@@ -273,14 +283,21 @@ Gate: do not start Phase 3 until an external `curl` of the directory returns **2
 
 ## Phase 3 — Register with Cloudflare & verify the gate
 
-Precondition: the directory URL returns 200 to an external `curl` (Phase 2 step 5).
-If Akamai still 403s it, Cloudflare cannot read our key and registration finds
-nothing.
+Precondition: `rake directory_check` prints `PASS`. It fetches the directory the way
+Cloudflare does (`User-Agent: Cloudflare-Validator/1.0`) and runs the checks of
+Cloudflare's own [`http-signature-directory`](https://crates.io/crates/http-signature-directory)
+validator: 200, the exact content-type, and one valid signature per key covering
+`"@authority";req`. Cloudflare runs that validation when it reviews the submission,
+and a bounced submission costs a full review cycle (the first took four weeks).
 
-- [ ] In the Cloudflare dashboard, register Machinio as a signed/verified bot and
-      submit the directory URL:
+- [x] In the Cloudflare dashboard (**Application security → BotBase → Submission
+      form**), submit the bot with identity attestation **Web Bot Auth** and the
+      directory URL
       `https://www.machinio.com/.well-known/http-message-signatures-directory`
-      (details in [`cloudflare-setup.md`](cloudflare-setup.md)).
+      (details in [`cloudflare-setup.md`](cloudflare-setup.md)). Submitted
+      2026-09-11 as `MachinioBot`.
+- [ ] Resubmit once `rake directory_check` passes against production: BotBase →
+      **Submission history** → `MachinioBot` → **Edit submission**.
 - [ ] From the `web_bot_auth` repo, sign with the production key and hit the gate:
 
   ```sh
@@ -290,6 +307,49 @@ nothing.
 
 200 here means the full path — signing, directory, registration, Cloudflare
 verification — works end to end.
+
+### Status 2026-10-09 — submission bounced: the directory signature lacked `req`
+
+Cloudflare answered the 2026-09-11 submission with **Changes requested**: "Web Bot
+Auth keys directory validation failed … ensure you are signing the directory
+correctly."
+
+Cause: the directory response was signed over a plain `("@authority")`. Cloudflare's
+validator requires `("@authority";req)` and treats the plain form as a missing
+component, so the signature never gets as far as being verified. Everything else was
+already right — the key, the keyid, the tag, the validity window, and the signature
+itself, which verifies over `@authority=www.machinio.com`.
+
+Evidence:
+
+- The validator's source
+  (`cloudflare/web-bot-auth`, `crates/http-signature-directory/src/main.rs`) has an
+  explicit branch for it: "You are signing a plain `@authority` without the `req`
+  component parameter."
+- Cloudflare's reference vector
+  (`packages/web-bot-auth/test/test_data/web_bot_auth_directory_response_v1.json`)
+  signs `"@authority";req: signature-agent.test`. The gem reproduces its signature
+  byte for byte (`test_matches_cloudflare_directory_response_vector`).
+- `rake directory_check` against production reported exactly two failures: the
+  missing `req`, and `Content-Type` carrying `; charset=utf-8`, which the same
+  validator flags as a warning.
+
+Fix: `;req` in the gem's `Directory::COMPONENTS` and in machinio's
+`WebBotAuthDirectoryController`, which also drops the charset. The two still produce
+byte-identical headers.
+
+Akamai is no longer in the way of the validator. Cloudflare fetches the directory as
+`User-Agent: Cloudflare-Validator/1.0`, and Bot Manager now exempts that user agent:
+it gets 200 on both the directory and `/bot`. Any other non-browser client still
+gets 403, so check the endpoint with `rake directory_check`, not a bare `curl`. The
+edge does not cache the directory response, so a deploy is visible immediately.
+
+The machinio fix (`machinio/machinio#12012`) was merged and live the same day.
+Against production, `rake directory_check` prints `PASS`, and Cloudflare's own
+validator (`http-signature-directory` 0.7.0) reports `"success": true` with
+`"signature_verified": true` and no errors or warnings.
+
+Next: **Edit submission** in BotBase.
 
 ---
 
@@ -395,10 +455,15 @@ so both coexist. See [`machinio-setup.md`](machinio-setup.md).
 - [ ] Private key stored in the crawlers' secrets as `WEB_BOT_AUTH_PRIVATE_KEY`
 - [x] `machinio`: directory JSON committed, route added, test green, deployed —
       verified live 2026-07-27, serving the production keyid above
-- [ ] **Akamai exemption** for the directory path (or off-Akamai host chosen) —
+- [x] **Akamai exemption** — Bot Manager exempts `Cloudflare-Validator/1.0`, the
+      user agent Cloudflare fetches the directory with (verified 2026-10-09)
+- [x] Cloudflare registration submitted (2026-09-11; changes requested 2026-10-09)
+- [x] `machinio`: directory signed over `("@authority";req)`, exact content-type
+      (deployed 2026-10-09)
+- [x] `rake directory_check` → `PASS` against production, and Cloudflare's
+      `http-signature-directory` validator agrees (2026-10-09)
+- [ ] Submission edited and resubmitted in BotBase —
       ⬅ **the one thing blocking everything downstream**
-- [ ] Directory returns **200 to an external curl** with the correct content-type
-- [ ] Cloudflare registration submitted
 - [ ] `rake crawltest` → 200
 - [ ] Gem added to `athena_crawlers`; lazy signer helper added
 - [ ] Per-request signing wired into `ApplicationCrawler` (direct-fetch)

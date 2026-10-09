@@ -6,7 +6,7 @@ require "base64"
 module WebBotAuth
   class Directory
     CONTENT_TYPE = "application/http-message-signatures-directory+json"
-    COMPONENTS = ["@authority"].freeze
+    COMPONENTS = ["@authority;req"].freeze
     TAG = "http-message-signatures-directory"
     ALG = "ed25519"
     DEFAULT_TTL = 86_400
